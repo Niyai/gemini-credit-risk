@@ -1,0 +1,14 @@
+# requirements.txt
+google-generativeai
+pandas
+python-dotenv
+google-cloud-aiplatform
+python-dotenv
+matplotlib
+seaborn
+scikit-learn
+joblib
+numpy
+streamlit
+Faker
+ucimlrepo
