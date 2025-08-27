@@ -16,6 +16,7 @@ class GeminiClient:
         
         try:
             vertexai.init(project=project_id, location=location)
+            # Load the base model by default upon initialization
             self.base_model = GenerativeModel("gemini-2.5-flash")
             print("✅ Gemini Client initialized successfully with base model.")
         except Exception as e:

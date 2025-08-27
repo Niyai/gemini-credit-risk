@@ -5,14 +5,15 @@ from dotenv import load_dotenv
 import vertexai
 from vertexai.tuning import sft
 
-def start_finetuning_job(project_id: str, location: str, gcs_uri: str):
+def start_finetuning_job(project_id: str, location: str, train_gcs_uri: str, validation_gcs_uri: str):
     """
-    Starts a supervised fine-tuning job on Vertex AI using the modern sft.train() method.
+    Starts a supervised fine-tuning job on Vertex AI using a training and validation dataset.
     
     Args:
         project_id: Your Google Cloud Project ID.
         location: The GCP region for the job (e.g., "us-central1").
-        gcs_uri: The Google Cloud Storage URI of your JSONL dataset.
+        train_gcs_uri: The GCS URI of your training JSONL dataset.
+        validation_gcs_uri: The GCS URI of your validation JSONL dataset.
     """
     print(f"Starting fine-tuning job in project '{project_id}'...")
     
@@ -22,12 +23,15 @@ def start_finetuning_job(project_id: str, location: str, gcs_uri: str):
         # Start the tuning job using the sft.train method
         sft_tuning_job = sft.train(
             source_model="gemini-2.5-flash",
-            train_dataset=gcs_uri,
-            # Optional parameters can be added here, e.g., validation_dataset, epochs, etc.
+            train_dataset=train_gcs_uri,
+            # --- Overfitting Mitigation: Use a validation dataset ---
+            validation_dataset=validation_gcs_uri,
+            # You can also adjust epochs (e.g., epochs=3) for more control
+            epochs=4 
         )
 
         print("✅ Fine-tuning job submitted successfully! Now polling for completion...")
-        print(f"You can also monitor the job in the Google Cloud Console.")
+        print(f"You can also monitor the job in the Google Cloud Console to see training vs. validation loss.")
 
         # Polling for job completion
         while not sft_tuning_job.has_ended:
@@ -52,15 +56,19 @@ if __name__ == "__main__":
     if not gcp_project_id:
         print("🔥 Error: GOOGLE_CLOUD_PROJECT_ID not found in .env file.")
     else:
-        # IMPORTANT: You must first upload 'finetuning_dataset_german.jsonl' to a GCS bucket
-        # and replace the URI below with the correct path.
-        gcs_dataset_uri = "gs://gemini-name-credit-risk-bucket-2025/finetuning_dataset_german.jsonl"
+        # --- IMPORTANT ---
+        # You must first upload both 'finetuning_dataset_train.jsonl' and 
+        # 'finetuning_dataset_validation.jsonl' to a GCS bucket.
+        # Then, replace the URIs below with the correct paths.
+        gcs_train_uri = "gs://gemini-name-credit-risk-bucket-2025/finetuning_dataset_train.jsonl"
+        gcs_validation_uri = "gs://gemini-name-credit-risk-bucket-2025/finetuning_dataset_validation.jsonl"
         
-        if "your-bucket-name" in gcs_dataset_uri:
-            print("🚨 Please update the 'gcs_dataset_uri' variable in 'run_finetuning_job.py' with your actual GCS bucket path.")
+        if "your-bucket-name" in gcs_train_uri:
+            print("🚨 Please update the GCS bucket URIs in 'run_finetuning_job.py' before running.")
         else:
             start_finetuning_job(
                 project_id=gcp_project_id,
                 location="us-central1",
-                gcs_uri=gcs_dataset_uri
+                train_gcs_uri=gcs_train_uri,
+                validation_gcs_uri=gcs_validation_uri
             )

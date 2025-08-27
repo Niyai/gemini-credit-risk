@@ -1,61 +1,91 @@
 # src/data_loader.py
 import pandas as pd
-from ucimlrepo import fetch_ucirepo 
+import numpy as np
+from datetime import datetime
 
-def load_and_process_credit_data():
+def clean_column_names(df):
+    """Standardizes column names to be Python-friendly."""
+    cols = df.columns
+    new_cols = []
+    for col in cols:
+        new_col = col.strip().replace(' ', '_').replace('/', '_').replace('-', '_')
+        new_col = ''.join(e for e in new_col if e.isalnum() or e == '_')
+        new_cols.append(new_col.lower())
+    df.columns = new_cols
+    return df
+
+def categorize_delinquency(days):
+    """Categorizes the severity of delinquency based on days in arrears."""
+    if days == 0:
+        return 'No Arrears'
+    elif 1 <= days <= 30:
+        return '1-30 Days'
+    elif 31 <= days <= 90:
+        return '31-90 Days'
+    else: # 91+ days
+        return '90+ Days'
+
+def load_and_process_credit_data(file_path="data/Credit_bureau_submission.xlsx"):
     """
-    Fetches and processes the German Credit Risk dataset using the ucimlrepo package.
+    Loads and processes the real-world credit data from the specified Excel sheet,
+    engineering features for analysis based on the refined project scope.
     """
-    print("Fetching German Credit Risk dataset via ucimlrepo...")
+    print("Processing real-world credit data from Excel file...")
     try:
-        # Fetch dataset using its ID from the UCI repository
-        statlog_german_credit_data = fetch_ucirepo(id=144) 
-        
-        # data (as pandas dataframes) 
-        X = statlog_german_credit_data.data.features 
-        y = statlog_german_credit_data.data.targets 
-
-        # Combine features and target into a single DataFrame
-        df = pd.concat([X, y], axis=1)
-        
-        # --- Data Cleaning and Mapping ---
-        # The library provides descriptive column names, but the values are still coded.
-        # We will map them to be more interpretable for the LLM.
-        status_map = {'A11': '< 0 DM', 'A12': '0 <= ... < 200 DM', 'A13': '>= 200 DM', 'A14': 'no checking account'}
-        history_map = {'A30': 'no credits taken', 'A31': 'all credits paid back duly', 'A32': 'existing credits paid back duly till now', 'A33': 'delay in paying off in the past', 'A34': 'critical account'}
-        purpose_map = {'A40': 'car (new)', 'A41': 'car (used)', 'A42': 'furniture/equipment', 'A43': 'radio/television', 'A44': 'domestic appliances', 'A45': 'repairs', 'A46': 'education', 'A47': 'vacation', 'A48': 'retraining', 'A49': 'business', 'A410': 'others'}
-        sex_map = {'A91': 'male : divorced/separated', 'A92': 'female : divorced/separated/married', 'A93': 'male : single', 'A94': 'male : married/widowed', 'A95': 'female : single'}
-        
-        # Rename columns for clarity before mapping
-        df.rename(columns={
-            'Attribute1': 'Status of existing checking account',
-            'Attribute2': 'Duration in month',
-            'Attribute3': 'Credit history',
-            'Attribute4': 'Purpose',
-            'Attribute5': 'Credit amount',
-            'Attribute7': 'Present employment since',
-            'Attribute8': 'Installment rate in percentage of disposable income',
-            'Attribute9': 'Personal status and sex',
-            'Attribute13': 'Age',
-            'Attribute15': 'Housing',
-            'Attribute17': 'Job',
-            'class': 'Risk' # The target variable is named 'class' by the library
-        }, inplace=True)
-
-        df['Status of existing checking account'] = df['Status of existing checking account'].map(status_map)
-        df['Credit history'] = df['Credit history'].map(history_map)
-        df['Purpose'] = df['Purpose'].map(purpose_map)
-        df['Personal status and sex'] = df['Personal status and sex'].map(sex_map)
-
-        # Create a separate 'Sex' column for fairness analysis
-        df['Sex'] = df['Personal status and sex'].apply(lambda x: 'male' if 'male' in x else 'female')
-
-        # Convert the target variable 'Risk' to a more intuitive format (1 = Bad, 0 = Good)
-        df['Risk'] = df['Risk'].replace({1: 0, 2: 1})
-        
-        print("✅ German Credit dataset processed successfully.")
-        return df
-
-    except Exception as e:
-        print(f"🔥 Error fetching or processing the data: {e}")
+        # Use pd.read_excel for .xlsx files and specify the sheet name
+        df = pd.read_excel(file_path, sheet_name="Credit Information October ")
+    except FileNotFoundError:
+        print(f"🔥 Error: The file at {file_path} was not found.")
         return None
+    except ValueError as e:
+        print(f"🔥 Error: Could not find the sheet 'Credit Information October'. Please check the sheet name. Details: {e}")
+        return None
+
+    # 1. Standardize column names
+    df = clean_column_names(df)
+
+    # 2. Clean and convert data types
+    df['date_of_birth'] = pd.to_datetime(df['date_of_birth'], errors='coerce')
+    numeric_cols = ['credit_limit_facility_amount_global_limit', 'outstanding_balance', 'days_in_arrears']
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+    # 3. Engineer Features at the loan level
+    df['isdelinquent'] = (df['days_in_arrears'] > 0).astype(int)
+    df['delinquencyseverity'] = df['days_in_arrears'].apply(categorize_delinquency)
+    df['creditutilization'] = (df['outstanding_balance'] / df['credit_limit_facility_amount_global_limit']).replace([np.inf, -np.inf], 0).fillna(0)
+    df['age'] = (datetime.now() - df['date_of_birth']).dt.days // 365
+    
+    # 4. Clean demographic features
+    demographic_cols = ['gender', 'marital_status', 'primary_state']
+    for col in demographic_cols:
+        if col in df.columns:
+            df[col] = df[col].fillna('').astype(str)
+
+    df['gender'] = df['gender'].str.strip().str.upper().replace({'M': 'Male', 'F': 'Female'})
+    df['marital_status'] = df['marital_status'].str.strip().str.upper().replace({'S': 'Single', 'M': 'Married'})
+    if 'primary_state' in df.columns:
+        df['primary_state'] = df['primary_state'].str.replace(' State', '', case=False).str.strip()
+
+    # 5. Aggregate to Customer Level
+    customer_df = df.groupby('customerid').agg(
+        age=('age', 'first'),
+        gender=('gender', 'first'),
+        primary_state=('primary_state', 'first'),
+        marital_status=('marital_status', 'first'),
+        total_outstanding=('outstanding_balance', 'sum'),
+        average_utilization=('creditutilization', 'mean'),
+        max_days_in_arrears=('days_in_arrears', 'max'),
+        isdelinquent=('isdelinquent', 'max') 
+    ).reset_index()
+
+    # --- FIX: Fill any remaining NaN values in the age column with the median ---
+    if customer_df['age'].isnull().any():
+        median_age = customer_df['age'].median()
+        customer_df['age'].fillna(median_age, inplace=True)
+    # -------------------------------------------------------------------------
+
+    customer_df['maxdelinquencyseverity'] = customer_df['max_days_in_arrears'].apply(categorize_delinquency)
+
+    print(f"✅ Data processing complete. {len(customer_df)} unique customers found.")
+    return customer_df

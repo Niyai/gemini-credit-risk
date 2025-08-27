@@ -1,5 +1,5 @@
-Model,Accuracy,Fairness Disparity (Age)
-Benchmark ML,0.665,0.06
-Baseline LLM,0.089,0.037
-Debiased LLM,0.092,0.032
-Fine-Tuned LLM,0.11,0.096
+Model,Accuracy,Fairness Disparity (Age),Fairness Disparity (Gender),Fairness Disparity (State)
+Benchmark ML,1.0,0.0,0.0,0.0
+Baseline LLM,0.698,0.083,0.08,0.061
+Debiased LLM,0.696,0.053,0.057,0.067
+Fine-Tuned LLM,0.808,0.191,0.196,0.16
